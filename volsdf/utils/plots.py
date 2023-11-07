@@ -18,10 +18,10 @@ def stacked_plot(indices, plot_data, path, epoch, img_res, plot_nimgs, resolutio
     cam_loc, cam_dir = rend_util.get_camera_for_plot(plot_data['pose'])
 
     # plot images (2+300+2+300, 2+400+2, 3) 0 ~ 255
-    img = plot_images(plot_data['rgb_eval'], plot_data['rgb_gt'], path, epoch, plot_nimgs, img_res, indices, save=False)
+    img = plot_images(plot_data['rgb_eval'], plot_data['rgb_gt'], path, epoch, plot_nimgs, img_res, indices, save=True)
 
     # plot normal maps (300, 400, 3) 0 ~ 255
-    normal = plot_normal_maps(plot_data['normal_map'], path, epoch, plot_nimgs, img_res, indices, save=False)
+    normal = plot_normal_maps_undercam(plot_data['normal_map'], plot_data['pose'],path, epoch, plot_nimgs, img_res, indices, save=True)
 
     # plot depth maps (300, 400, 3) 0 ~ 255
     depth = plot_depth_maps(plot_data['depth_map'], plot_data['acc'], path, epoch, plot_nimgs, img_res, indices, save=False)
@@ -186,7 +186,7 @@ def get_surface_high_res_mesh(sdf, resolution=100, grid_boundary=[-2.0, 2.0], le
     return meshexport
 
 def get_surface_by_grid(grid_params, sdf, resolution=100, level=0, higher_res=False, splitn=100000):
-    grid_params = grid_params * [[1.5], [1.0]]
+    grid_params = grid_params * [[1], [1.0]]
 
     # params = PLOT_DICT[scan_id]
     input_min = torch.tensor(grid_params[0]).float()
@@ -363,6 +363,22 @@ def plot_normal_maps(normal_maps, path, epoch, plot_nrow, img_res, indices, save
         return tensor
     img = Image.fromarray(tensor)
     img.save('{0}/normal_{1}_{2}.png'.format(path, epoch, indices[0]))
+def plot_normal_maps_undercam(normal_maps, pose,path, epoch, plot_nrow, img_res, indices, save=True):
+    normal_maps_plot = lin2img(normal_maps, img_res)
+
+    tensor = torchvision.utils.make_grid(normal_maps_plot,
+                                         scale_each=False,
+                                         normalize=False,
+                                         nrow=plot_nrow).detach().cpu().numpy()
+
+    tensor = tensor.transpose(1, 2, 0)
+    scale_factor = 255
+    tensor = (tensor * scale_factor).astype(np.uint8)
+    if not save:
+        return tensor
+    img = Image.fromarray(tensor)
+    img.save('{0}/normal_{1}_{2}.png'.format(path, epoch, indices[0]))
+    return tensor
 
 def plot_images(rgb_points, ground_true, path, epoch, plot_nrow, img_res, indices, save=True):
     ground_true = ground_true.cpu()
@@ -383,6 +399,8 @@ def plot_images(rgb_points, ground_true, path, epoch, plot_nrow, img_res, indice
         return tensor
     img = Image.fromarray(tensor)
     img.save('{0}/rendering_{1}_{2}.png'.format(path, epoch, indices[0]))
+    return tensor
+
 
 
 def lin2img(tensor, img_res):

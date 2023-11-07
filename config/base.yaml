@@ -1,5 +1,5 @@
 defaults:
-  - vol: dtu
+  - vol: cvpr_ours
   - _self_
   - override hydra/hydra_logging: disabled  
   - override hydra/job_logging: disabled  
@@ -12,15 +12,15 @@ hydra:
 
 # general
 gpu: auto
-num_view: 3
+num_view: 6
 testlist: scan106 # or testlist='*.txt' with a list of scans
 outdir: exps_mvs # output for MVS
 exps_folder: exps_vsdf # output for VolSDF
 
 # data
-data_dir_root: data_s_volsdf # images & cams, pair.txt & depth range
-max_h: 576
-max_w: 768
+data_dir_root: data # images & cams, pair.txt & depth range
+max_h: 512
+max_w: 512
 trains_i: 25,22,28
 
 # VolSDF

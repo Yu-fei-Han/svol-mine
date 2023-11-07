@@ -11,7 +11,7 @@ train: # should be consistent with config/confs/dtu.conf
     split_n_pixels : 500
 plot:
     plot_nimgs : 1
-    resolution : 100
+    resolution : 512
     grid_boundary : [-1.5, 1.5]
 loss:
     eikonal_weight : 0.1
@@ -20,9 +20,9 @@ loss:
     rgb_loss : torch.nn.L1Loss
 dataset:
     data_dir : DTU
-    img_res : [576, 768]
+    img_res : [512, 512]
     scan_id : 114
-    num_views : 3
+    num_views : 6
 model:
     feature_vector_size : 256
     scene_bounding_sphere : 3.0

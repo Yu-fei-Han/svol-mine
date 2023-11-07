@@ -224,9 +224,11 @@ class MVSDataset(Dataset):
             # Feat_extract -> (288, 384) (576, 768) (1152, 1536)
             if self.hparams.get("x2_mvsres", False):
                 _s_hw = 1536 / self._max_w
-                assert self._max_w * _s_hw == 1536 and self._max_h * _s_hw == 1152 
+                # assert self._max_w * _s_hw == 1536 and self._max_h * _s_hw == 1152 
                 img, intrinsics = self.scale_mvs_input(img, intrinsics, self._max_w, self._max_h, base=1)
-                img, intrinsics = self.scale_mvs_input(img, intrinsics, 1536, 1152)
+                # img, intrinsics = self.scale_mvs_input(img, intrinsics, 1536, 1152)
+                img, intrinsics = self.scale_mvs_input(img, intrinsics, 1536, 1536)
+
             else:
                 # scale input
                 img, intrinsics = self.scale_mvs_input(img, intrinsics, self._max_w, self._max_h)

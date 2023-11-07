@@ -38,7 +38,7 @@ from datasets.data_io import read_pfm, save_pfm
 from datasets.general_eval import MVSDataset
 from volsdf.datasets.scene_dataset import get_trains_ids, get_eval_ids
 from volsdf.vsdf import VolOpt
-
+# os.environ['CUDA_VISIBLE_DEVICES']='4'
 cudnn.benchmark = True
 torch.set_printoptions(sci_mode=False, precision=4)
 np.set_printoptions(suppress=True, precision=4)

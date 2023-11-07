@@ -33,7 +33,8 @@ def get_trains_ids(data_dir, scan, num_views=0, for_interp=False):
         return list(range(49))
 
     if data_dir == 'DTU':
-        train_ids_all = [25, 22, 28, 40, 44, 48, 0, 8, 13]
+        # train_ids_all = [25, 22, 28, 40, 44, 48, 0, 8, 13]
+        train_ids_all = [0,1,2,3,4,5]
         return train_ids_all[:num_views]
         
     elif data_dir == 'BlendedMVS':
@@ -72,9 +73,11 @@ def get_trains_ids(data_dir, scan, num_views=0, for_interp=False):
 def get_eval_ids(data_dir, scan_id=None):
     if 'DTU' == data_dir:
         # from regnerf/pixelnerf
-        train_idx = [25, 22, 28, 40, 44, 48, 0, 8, 13]
-        exclude_idx = [3, 4, 5, 6, 7, 16, 17, 18, 19, 20, 21, 36, 37, 38, 39]
-        test_idx = [i for i in range(49) if i not in train_idx + exclude_idx]
+        # train_idx = [25, 22, 28, 40, 44, 48, 0, 8, 13]
+        # exclude_idx = [3, 4, 5, 6, 7, 16, 17, 18, 19, 20, 21, 36, 37, 38, 39]
+        # test_idx = [i for i in range(49) if i not in train_idx + exclude_idx]
+        test_idx = [0,1,2,3,4,5]
+
         return test_idx
     elif 'BlendedMVS' == data_dir:
         bmvs_test_ids = {1: [19, 35, 58, 0, 33, 37, 31, 20, 61, 22, 36, 13], 2: [14, 49, 37, 1, 27, 8, 12, 39, 65, 23, 71, 68], 3: [33, 0, 28, 11, 6, 7, 15, 25, 13, 31, 16, 1], 4: [30, 48, 9, 68, 50, 59, 23, 29, 0, 46, 2, 71], 5: [58, 55, 24, 57, 17, 16, 41, 44, 0, 13, 20, 26], 6: [55, 25, 13, 75, 73, 2, 88, 22, 10, 80, 40, 1], 7: [17, 10, 22, 8, 23, 0, 27, 6, 14, 13, 29, 7], 8: [27, 25, 47, 28, 10, 17, 30, 18, 8, 26, 24, 43], 9: [118, 18, 136, 92, 68, 89, 133, 83, 25, 65, 94, 59]}
@@ -129,7 +132,9 @@ class SceneDataset(torch.utils.data.Dataset):
         # mask
         mask_path = os.path.join(data_dir_root, data_dir, 'eval_mask')
         if data_dir == 'DTU':
-            maskf_fn = lambda x: os.path.join(mask_path, f'scan{scan_id}', 'mask', f'{x:03d}.png')
+            # maskf_fn = lambda x: os.path.join(mask_path, f'scan{scan_id}', 'mask', f'{x:03d}.png')
+            maskf_fn = lambda x: os.path.join(mask_path, f'scan{scan_id}', 'mask', f'{x:04d}.png')
+
             if not os.path.exists(maskf_fn(0)):
                 maskf_fn = lambda x: os.path.join(mask_path, f'scan{scan_id}', f'{x:03d}.png')
         elif data_dir == 'BlendedMVS':
@@ -178,8 +183,10 @@ class SceneDataset(torch.utils.data.Dataset):
             if data_dir == 'DTU' and id_ in get_eval_ids(data_dir=data_dir) and scan_id not in [1, 4, 11, 13, 48]:
                 fname = maskf_fn(id_)
                 with open(fname, 'rb') as imgin:
-                    mask_image = np.array(Image.open(imgin), dtype=np.float32)[:, :, :3] / 255.
-                    mask_image = (mask_image == 1).astype(np.float32)
+                    mask_image = np.array(Image.open(imgin), dtype=np.float32)[:, :, -1:]
+                    mask_image = mask_image.repeat(3,axis=-1).astype(np.float32)
+                    # mask_image = np.array(Image.open(imgin), dtype=np.float32)[:, :, :3] / 255.
+                    # mask_image = (mask_image == 1).astype(np.float32)
                 if scale_h != 1 or scale_w != 1:
                     mask_image = cv2.resize(mask_image, (self.img_res[1], self.img_res[0]), cv2.INTER_NEAREST)
                     mask_image = (mask_image > 0.5).astype(np.float32)

@@ -1,16 +1,18 @@
 defaults:
   - base
   - _self_
-
+testlist: scan125
 outdir: exps_mvs
 exps_folder: exps_vsdf
 opt_stepNs: [100000,0,0]
 
+is_continue: False
+
 vol:
   train:
     expname : ours
-    render_freq: 500
-    checkpoint_freq : 100
+    render_freq: 2000
+    checkpoint_freq : 1000
     num_pixels : 512
   loss:
     mvs_weight : 1.0 

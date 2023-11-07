@@ -5,6 +5,7 @@ from pyhocon import ConfigFactory
 import copy
 import itertools
 from omegaconf import OmegaConf
+import numpy as np
 import torch
 from tqdm import tqdm
 from torch.nn.functional import grid_sample
@@ -145,7 +146,7 @@ class VolOpt():
 
     def gen_plot_dataset(self):
         data_conf = copy.deepcopy(self.conf.get_config('dataset'))
-        data_conf['img_res'] = [int(_/4.) for _ in data_conf['img_res']]
+        data_conf['img_res'] = [int(_/1.) for _ in data_conf['img_res']]
         self.plot_dataset = SceneDataset(**data_conf)
         self.plot_dataloader = torch.utils.data.DataLoader(self.plot_dataset,
                                                         batch_size=self.conf.get_int('plot.plot_nimgs'),
@@ -236,7 +237,26 @@ class VolOpt():
 
     def render_step(self, batch, epoch, dataset, fast=-1):
         self.model.eval()
+        mesh = plt.get_surface_by_grid(
+                    grid_params=np.array([[-1,-1,-1],[1,1,1]]),
+                    sdf=lambda x: self.model.implicit_network(x)[:, 0],
+                    resolution=512,
+                    level=self.conf.get_int('plot.level', default=0),
+                    higher_res=False
+                )
+                    # Transform to world coordinates
+        if mesh==None:
+            return 0
+        mesh.apply_transform(self.plot_dataset.get_scale_mat())
 
+        # Taking the biggest connected component
+        components = mesh.split(only_watertight=False)
+        areas = np.array([c.area for c in components], dtype=np.float32)
+        mesh_clean = components[areas.argmax()]
+
+        mesh_folder = '{0}/mesh_{1}'.format(self.plots_dir, epoch)
+        utils.mkdir_ifnotexists(mesh_folder)
+        mesh_clean.export('{0}/scan.ply'.format(mesh_folder), 'ply')
         indices, model_input, ground_truth = batch
         model_input["intrinsics"] = model_input["intrinsics"].cuda()
         model_input["uv"] = model_input["uv"].cuda()
@@ -283,7 +303,6 @@ class VolOpt():
         photo_conf = None
 
         self.total_step += 1
-
         return depth_cuda, photo_conf
 
     def get_plot_data(self, model_input, model_outputs, pose, rgb_gt):
@@ -291,7 +310,15 @@ class VolOpt():
 
         rgb_eval = model_outputs['rgb_values'].reshape(batch_size, num_samples, 3)
         normal_map = model_outputs['normal_map'].reshape(batch_size, num_samples, 3)
-        normal_map = (normal_map + 1.) / 2.
+        normal_map = torch.nn.functional.normalize(normal_map,dim=-1)
+        R = pose[:,:3,:3].detach().cpu()
+        R = torch.linalg.inv(R)
+        normal_map = torch.matmul(R,normal_map[...,None]).squeeze(-1)
+        normal = torch.zeros_like(normal_map)
+        normal[...,0] = -normal_map[...,0]
+        normal[...,1] = normal_map[...,1]
+        normal[...,2] = -normal_map[...,2]
+        normal_map = (normal + 1.) / 2.
       
         depth_map = model_outputs['depth_values'].reshape(batch_size, num_samples)
         acc = model_outputs['weights'].sum(1).reshape(batch_size, num_samples)

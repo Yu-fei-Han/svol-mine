@@ -50,12 +50,13 @@ def run_help(args):
     assert args.ndepths == "192,32,8"
     assert args.use_nerf_d == [1,0,0]
     assert args.x2_mvsres 
-    assert args.vol.dataset.data_dir in ["BlendedMVS", "DTU"]
+    # assert args.vol.dataset.data_dir in ["BlendedMVS", "DTU"]
 
     os.makedirs(args.outdir, exist_ok=True)
     if not args.filter_only:
         # save global args for all scans
         with open(os.path.join(args.outdir, 'all_scans.yaml'), "w") as f:
+            print(args.outdir)
             OmegaConf.save(args, f)
     logger.info('{0}'.format(' '.join(sys.argv)))
     
