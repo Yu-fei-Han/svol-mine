@@ -4,7 +4,7 @@ exps*/
 data_s_volsdf/
 z_logs.yaml
 *.pb
-
+data/
 *.log
 test_data/
 *.bash
