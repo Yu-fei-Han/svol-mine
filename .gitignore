@@ -6,3 +6,6 @@ z_logs.yaml
 *.pb
 data/
 *.log
+test_data/
+*.bash
+*.out

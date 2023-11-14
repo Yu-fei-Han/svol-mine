@@ -247,7 +247,7 @@ class VolOpt():
                     # Transform to world coordinates
         if mesh==None:
             return 0
-        mesh.apply_transform(self.plot_dataset.get_scale_mat())
+        # mesh.apply_transform(self.plot_dataset.get_scale_mat())
 
         # Taking the biggest connected component
         components = mesh.split(only_watertight=False)

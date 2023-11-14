@@ -29,8 +29,8 @@ def scan2hash(scan):
 def get_trains_ids(data_dir, scan, num_views=0, for_interp=False):
     if num_views <= 0: raise NotImplementedError
     
-    if num_views == 49:
-        return list(range(49))
+    if num_views == 48:
+        return list(range(48))
 
     if data_dir == 'DTU':
         # train_ids_all = [25, 22, 28, 40, 44, 48, 0, 8, 13]

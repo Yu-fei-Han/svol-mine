@@ -372,12 +372,14 @@ def plot_normal_maps_undercam(normal_maps, pose,path, epoch, plot_nrow, img_res,
                                          nrow=plot_nrow).detach().cpu().numpy()
 
     tensor = tensor.transpose(1, 2, 0)
+    img = tensor.copy()
     scale_factor = 255
     tensor = (tensor * scale_factor).astype(np.uint8)
     if not save:
         return tensor
-    img = Image.fromarray(tensor)
-    img.save('{0}/normal_{1}_{2}.png'.format(path, epoch, indices[0]))
+    # img = Image.fromarray(tensor)
+    # img.save('{0}/normal_{1}_{2}.png'.format(path, epoch, indices[0]))
+    cv2.imwrite('{0}/normal_{1}_{2}.png'.format(path, epoch, indices[0]),(img[...,::-1]*65535).astype(np.uint16))
     return tensor
 
 def plot_images(rgb_points, ground_true, path, epoch, plot_nrow, img_res, indices, save=True):

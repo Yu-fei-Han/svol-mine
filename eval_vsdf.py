@@ -8,10 +8,7 @@ import numpy as np
 from PIL import Image
 from tqdm import tqdm
 from skimage.metrics import structural_similarity
-
-from lpips_tensorflow import lpips_tf
-import tensorflow as tf
-tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
+import cv2
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 
 from datasets.data_io import read_pfm, save_pfm
@@ -69,7 +66,7 @@ def evaluate(**kwargs):
     dataset_conf['num_views'] = -1 # all images
     dataset_conf['data_dir_root'] = opt.data_dir_root
     eval_dataset = utils.get_class(conf.get_string('train.dataset_class'))(**dataset_conf)
-
+    print(len(eval_dataset))
     conf_model = conf.get_config('model')
     model = utils.get_class(conf.get_string('train.model_class'))(conf=conf_model)
 
@@ -108,50 +105,7 @@ def evaluate(**kwargs):
     model.cuda()
     model.eval()
 
-    if opt.eval_mesh:
-        with torch.no_grad():
-            if 'bmvs' in opt.conf:
-                mesh = plt.get_surface_high_res_mesh(
-                    sdf=lambda x: model.implicit_network(x)[:, 0],
-                    resolution=kwargs['resolution'],
-                    grid_boundary=conf.get_list('plot.grid_boundary'),
-                    level=conf.get_int('plot.level', default=0),
-                    take_components = type(scan_id) is not str
-                )
-            elif 'dtu' in opt.conf:
-                bb_dict = np.load(os.path.join(opt.data_dir_root, 'DTU/bbs.npz'))
-                if scan_id == 82:
-                    grid_params = bb_dict[str(83)]
-                elif scan_id in [21, 34, 38]:
-                    grid_params = bb_dict[str(24)]
-                else:
-                    grid_params = bb_dict[str(scan_id)]
-
-                mesh = plt.get_surface_by_grid(
-                    grid_params=grid_params,
-                    sdf=lambda x: model.implicit_network(x)[:, 0],
-                    resolution=kwargs['resolution'],
-                    level=conf.get_int('plot.level', default=0),
-                    higher_res=True
-                )
-            else:
-                raise NotImplementedError
-
-            # Transform to world coordinates
-            mesh.apply_transform(scale_mat)
-
-            # Taking the biggest connected component
-            components = mesh.split(only_watertight=False)
-            areas = np.array([c.area for c in components], dtype=np.float32)
-            mesh_clean = components[areas.argmax()]
-
-            mesh_folder = '{0}/mesh_{1}'.format(evaldir, epoch)
-            utils.mkdir_ifnotexists(mesh_folder)
-            mesh_clean.export('{0}/scan{1}.ply'.format(mesh_folder, scan_id), 'ply')
-
-            del mesh_clean, components, areas, mesh
-            gc.collect()
-            torch.cuda.empty_cache()
+    
 
     if opt.eval_rendering:
         images_dir = '{0}/rendering_{1}'.format(evaldir, epoch)
@@ -160,8 +114,7 @@ def evaluate(**kwargs):
         os.makedirs(os.path.join(images_dir, 'depth_est'), exist_ok=True)
 
         if 'dtu' in opt.conf:
-            test_idx = get_eval_ids('DTU', scan_id=None)
-            train_idx = get_trains_ids('DTU', scan=None, num_views=3)
+            train_idx = get_trains_ids('DTU', scan=None, num_views=48)
         elif 'bmvs' in opt.conf:
             test_idx = get_eval_ids('BlendedMVS', scan_id)
             train_idx = get_trains_ids('BlendedMVS', f'scan{scan_id}', num_views=3)
@@ -169,13 +122,9 @@ def evaluate(**kwargs):
         else:
             raise NotImplementedError
 
-        test_idx += train_idx[:3]
+        test_idx = list(range(len(eval_dataset)))
         logger.info(f"{len(test_idx)} images (including train)")
 
-        psnrs, ssims, lpipss = [], [], []
-        pred_ph = tf.placeholder(tf.float32)
-        gt_ph = tf.placeholder(tf.float32)
-        distance_t = lpips_tf.lpips(pred_ph, gt_ph, model='net-lin', net='vgg')
         for data_index, (indices, model_input, ground_truth) in enumerate(eval_dataloader):
             if indices not in test_idx: continue
 
@@ -183,102 +132,48 @@ def evaluate(**kwargs):
             model_input["uv"] = model_input["uv"].cuda()
             model_input['pose'] = model_input['pose'].cuda()
 
-            # Already have results -> evaluate
-            if opt.result_from != 'None':
-                if indices in train_idx: continue
+        
+            split = utils.split_input(model_input, total_pixels, n_pixels=opt.split_n_pixels)
+            res = []
+            for s in tqdm(split, ncols=60):
+                out = model(s)
+                res.append({
+                    'rgb_values': out['rgb_values'].detach(),
+                    'normal_map': out['normal_map'].detach(),
+                    'depth_values': out['depth_values'].detach(),
+                    'weights': out['weights'].detach(),
+                })
 
-                if opt.result_from == 'blend':
-                    pred_img = Image.open('{0}/eval_blend_{1}.png'.format(images_dir,'%03d' % indices[0]))
-                elif opt.result_from == 'default':
-                    pred_img = Image.open('{0}/eval_{1}.png'.format(images_dir,'%03d' % indices[0]))
-                else:
-                    raise NotImplementedError
+            batch_size = ground_truth['rgb'].shape[0]
+            model_outputs = utils.merge_output(res, total_pixels, batch_size)
 
-                rgb_pred = np.array(pred_img, dtype=np.float32).reshape(-1, 3) / 255.
-                rgb_pred = torch.from_numpy(rgb_pred)
-                mask = ground_truth['mask'].reshape(-1, 3)
-                mask_bin = (mask == 1.)
-                rgb_fg = ground_truth['rgb'].reshape(-1, 3) * mask + (1 - mask)
-                rgb_hat_fg = rgb_pred * mask + (1 - mask)
-                rgb_fg = rgb_fg.reshape(img_res+[3,]).cpu().numpy() # (HW, 3) -> (H, W, 3)
-                rgb_hat_fg = rgb_hat_fg.reshape(img_res+[3,]).cpu().numpy()
-                mse = torch.mean((rgb_pred - ground_truth['rgb'].reshape(-1,3))[mask_bin] ** 2)
-                psnr_masked = -10. * torch.log(mse) / torch.log(torch.Tensor([10.]))
-                ssim_masked = float(structural_similarity(rgb_hat_fg, rgb_fg, multichannel=True))
-                with tf.Session() as session:
-                    lpips_masked = session.run(distance_t, feed_dict={pred_ph: rgb_hat_fg[None, ...], gt_ph: rgb_fg[None, ...]})[0]
-                ssims.append(ssim_masked)
-                psnrs.append(psnr_masked)
-                lpipss.append(lpips_masked)
-            
-            # Otherwise, render and save RGBD for evaluation
-            else:
-                split = utils.split_input(model_input, total_pixels, n_pixels=opt.split_n_pixels)
-                res = []
-                for s in tqdm(split, ncols=60):
-                    out = model(s)
-                    res.append({
-                        'rgb_values': out['rgb_values'].detach(),
-                        'normal_map': out['normal_map'].detach(),
-                        'depth_values': out['depth_values'].detach(),
-                        'weights': out['weights'].detach(),
-                    })
 
-                batch_size = ground_truth['rgb'].shape[0]
-                model_outputs = utils.merge_output(res, total_pixels, batch_size)
+            ## Normal
+            normal_eval = model_outputs['normal_map']
+            normal_map = normal_eval.reshape(batch_size, total_pixels, 3)
+            normal_map = torch.nn.functional.normalize(normal_map,dim=-1)
 
-                # RGB
-                rgb_eval = model_outputs['rgb_values']
-                rgb_eval = rgb_eval.reshape(batch_size, total_pixels, 3)
-                rgb_eval = plt.lin2img(rgb_eval, img_res).detach().cpu().numpy()[0]
-                rgb_eval = rgb_eval.transpose(1, 2, 0)
+            R = model_input['pose'][:,:3,:3]
+            R = torch.linalg.inv(R)
+            normal_map = torch.matmul(R,normal_map[...,None]).squeeze(-1)
+            normal = torch.zeros_like(normal_map)
+            normal[...,0] = normal_map[...,0]
+            normal[...,1] = -normal_map[...,1]
+            normal[...,2] = -normal_map[...,2]
+            normal_map = (normal + 1.) / 2.
 
-                # Depth
-                depth_map = model_outputs['depth_values'].reshape(batch_size, total_pixels)
-                depth_map = plt.lin2img(depth_map[..., None], img_res).detach().cpu().squeeze()
-                # save depth maps for image-based rendering
-                depth_map_np = depth_map.numpy() * eval_dataset.scale_factor # (576, 768) float32
-                save_pfm('{0}/depth_est/{1}.pfm'.format(images_dir, '%08d' % indices[0]), depth_map_np)
 
-                # Save in png
-                ## RGB
-                img = Image.fromarray((rgb_eval * 255).astype(np.uint8))
-                img.save('{0}/eval_{1}.png'.format(images_dir,'%03d' % indices[0]))
-                
-                ## Normal
-                normal_eval = model_outputs['normal_map']
-                normal_eval = normal_eval.reshape(batch_size, total_pixels, 3)
-                normal_eval = (normal_eval + 1.) / 2.
-                normal_eval = plt.lin2img(normal_eval, img_res).detach().cpu().numpy()[0]
-                normal_eval = normal_eval.transpose(1, 2, 0)
-                normal_eval = Image.fromarray((normal_eval * 255).astype(np.uint8))
-                normal_eval.save('{0}/normal_{1}.png'.format(images_dir, '%03d' % indices[0]))
+            normal_map = plt.lin2img(normal_map, img_res).detach().cpu().numpy()[0]
+            normal_map = normal_map.transpose(1, 2, 0)
+            cv2.imwrite('{0}/normal_{1}.png'.format(images_dir, '%03d' % indices[0]),(normal_map[...,::-1]*65535).astype(np.uint16))
 
-                ## Depth
-                acc = model_outputs['weights'].sum(1).reshape(batch_size, total_pixels)
-                acc = plt.lin2img(acc[..., None], img_res).detach().cpu().numpy().squeeze()
-                depth_map = plt.visualize_depth(depth_map, acc)
-                depth_map = Image.fromarray((depth_map * 255).astype(np.uint8))
-                depth_map.save('{0}/dep_{1}.png'.format(images_dir, '%03d' % indices[0]))
-
-                torch.cuda.empty_cache()
+            torch.cuda.empty_cache()
 
         del model
         gc.collect()
         torch.cuda.empty_cache()
 
-        if opt.result_from != 'None':
-            psnrs = np.array(psnrs).astype(np.float64)
-            ssims = np.array(ssims).astype(np.float64)
-            lpipss = np.array(lpipss).astype(np.float64)
-            print(f"SCAN {scan_id}:")
-            print("    psnr mean = {0}, std {1}".format("%.4f" % psnrs.mean(), "%.4f" % psnrs.std()))
-            print("    ssim mean = {0}, std {1}".format("%.4f" % ssims.mean(), "%.4f" % ssims.std()))
-            print("    lpips mean = {0}, std {1}".format("%.4f" % lpipss.mean(), "%.4f" % lpipss.std()))
-            
-            return psnrs, ssims, lpipss
-        
-    return np.array([0]), np.array([0]), np.array([0])
+
 
 if __name__ == '__main__':
     ## prepare data
@@ -291,20 +186,20 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--conf', type=str, default='dtu')
-    parser.add_argument('--data_dir_root', type=str, default='data_s_volsdf', help='GT data dir')
+    parser.add_argument('--data_dir_root', type=str, default='test_data', help='GT data dir')
     parser.add_argument('--eval_mesh', default=False, action="store_true", help='extract mesh via marching cube')
-    parser.add_argument('--eval_rendering', default=False, action="store_true", help='If set, evaluate rendering quality.')
+    parser.add_argument('--eval_rendering', default=True, action="store_true", help='If set, evaluate rendering quality.')
     parser.add_argument('--result_from', default='None', type=str, choices=['None', 'default', 'blend'])
     parser.add_argument('--expname', type=str, default='ours', help='The experiment name to be evaluated.')
     parser.add_argument('--exps_folder', type=str, default='exps_vsdf', help='The experiments folder name for train.')
     parser.add_argument('--evals_folder', type=str, default='exps_result', help='The evaluation folder name (a new folder).')
-    parser.add_argument('--gpu', type=str, default='auto', help='GPU to use')
+    parser.add_argument('--gpu', type=str, default='1', help='GPU to use')
     parser.add_argument('--timestamp', default='latest', type=str, help='The experiemnt timestamp to test.')
     parser.add_argument('--checkpoint', default='latest',type=str, help='The trained model checkpoint to test')
     parser.add_argument('--ckpt_dir', default='',type=str)
-    parser.add_argument('--scan_ids', nargs='+', type=int, default=None, help='e.g. --scan_ids 12 34 56')
+    parser.add_argument('--scan_ids', nargs='+', type=int, default=[141], help='e.g. --scan_ids 12 34 56')
     parser.add_argument('--resolution', default=512, type=int, help='Grid resolution for marching cube, set as 400 if not enough GPU')
-    parser.add_argument('--split_n_pixels', default=512, type=int)
+    parser.add_argument('--split_n_pixels', default=2048, type=int)
     opt = parser.parse_args()
 
     # configs
@@ -332,10 +227,10 @@ if __name__ == '__main__':
     os.environ["CUDA_VISIBLE_DEVICES"] = '{0}'.format(gpu)
 
     # eval
-    psnr_all, ssim_all, lpips_all = [], [], []
+
     for scan_id in opt.scan_ids:
         logger.info(f'scan_id = {scan_id}')
-        psnr_i, ssim_i, lpips_i = evaluate(
+        evaluate(
                 conf=opt.conf,
                 expname=opt.expname,
                 exps_folder_name=opt.exps_folder,
@@ -346,12 +241,4 @@ if __name__ == '__main__':
                 resolution=opt.resolution,
                 ckpt_dir=opt.ckpt_dir,
                 )
-        psnr_all.append(psnr_i.tolist())
-        ssim_all.append(ssim_i.tolist())
-        lpips_all.append(lpips_i.tolist())
 
-    if opt.result_from != 'None':
-        print("FINAL metric: ")
-        print(f"    psnr = {np.mean([np.mean(_) for _ in psnr_all]):.4f}")
-        print(f"    ssim = {np.mean([np.mean(_) for _ in ssim_all]):.4f}")
-        print(f"    lpips = {np.mean([np.mean(_) for _ in lpips_all]):.4f}")

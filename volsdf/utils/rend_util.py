@@ -23,7 +23,8 @@ def get_psnr(img1, img2, normalize_rgb=False):
 
 
 def load_rgb(path, normalize_rgb = False):
-    img = cv2.imread(path,-1)[...,::-1]/65535
+    # img = cv2.imread(path,-1)[...,::-1]/65535
+    img = imageio.imread(path)
     img = skimage.img_as_float32(img)
 
     if normalize_rgb: # [-1,1] --> [0,1]

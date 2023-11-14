@@ -5,7 +5,7 @@ from helpers.help import logger
 from helpers.help import run_help
 
 # init args
-@hydra.main(version_base=None, config_path="config", config_name="ours")
+@hydra.main(version_base=None, config_path="config", config_name="ours_cvpr")
 def get_config(cfg: DictConfig):
     OmegaConf.set_struct(cfg, False)
     global args

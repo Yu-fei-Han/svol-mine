@@ -227,7 +227,7 @@ class MVSDataset(Dataset):
                 # assert self._max_w * _s_hw == 1536 and self._max_h * _s_hw == 1152 
                 img, intrinsics = self.scale_mvs_input(img, intrinsics, self._max_w, self._max_h, base=1)
                 # img, intrinsics = self.scale_mvs_input(img, intrinsics, 1536, 1152)
-                img, intrinsics = self.scale_mvs_input(img, intrinsics, 1536, 1536)
+                img, intrinsics = self.scale_mvs_input(img, intrinsics, 1536, (1536/self._max_w)*self._max_h)
 
             else:
                 # scale input
